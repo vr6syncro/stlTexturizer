@@ -169,7 +169,7 @@ export const TRANSLATIONS = {
     'labels.amplitude':      'Amplitude',
 
     // Surface mask section
-    'sections.surfaceMask':          'Fl\u00e4chenmaske \u24d8',
+    'sections.surfaceMask':          'Fl\u00e4chenmaskierung nach Winkel\u24d8',
     'tooltips.surfaceMask':          '0° = keine Maskierung. Fl\u00e4chen innerhalb dieses Winkels zur Horizontalen werden nicht texturiert.',
     'labels.bottomFaces':            'Unterseiten',
     'tooltips.bottomFaces':          'Textur auf nach unten gerichteten Fl\u00e4chen innerhalb dieses Winkels zur Horizontalen unterdr\u00fccken',
@@ -177,7 +177,7 @@ export const TRANSLATIONS = {
     'tooltips.topFaces':             'Textur auf nach oben gerichteten Fl\u00e4chen innerhalb dieses Winkels zur Horizontalen unterdr\u00fccken',
 
     // Surface exclusions section
-    'sections.surfaceExclusions':    'Fl\u00e4chenausschluss \u24d8',
+    'sections.surfaceExclusions':    'Manuelle Fl\u00e4chenmaskierung \u24d8',
     'sections.surfaceSelection':     'Fl\u00e4chenauswahl',
     'tooltips.surfaceExclusions':    'Ausgeschlossene Fl\u00e4chen erscheinen orange und erhalten beim Export keine Verschiebung.',
     'tooltips.surfaceSelection':     'Ausgew\u00e4hlte Fl\u00e4chen erscheinen gr\u00fcn und sind die einzigen, die beim Export eine Verschiebung erhalten.',
@@ -211,7 +211,7 @@ export const TRANSLATIONS = {
     'tooltips.export':               'Kleinere Kantenl\u00e4nge = feineres Verschiebungsdetail. Die Ausgabe wird dann auf das Dreieckslimit dezimiert.',
     'labels.resolution':             'Aufl\u00f6sung',
     'tooltips.resolution':           'Kanten l\u00e4nger als dieser Wert werden beim Export unterteilt',
-    'labels.outputTriangles':        'Ausgabe-Dreiecke',
+    'labels.outputTriangles':        'Max Dreiecke',
     'tooltips.outputTriangles':      'Das Netz wird zuerst vollst\u00e4ndig unterteilt, dann auf diese Anzahl dezimiert',
     'warnings.safetyCapHit':         '\u26a0 5-Mio.-Dreiecke-Sicherheitsgrenze bei der Unterteilung erreicht \u2014 Ergebnis kann gr\u00f6ber als gew\u00fcnschte Kantenl\u00e4nge sein.',
     'ui.exportStl':                  'STL exportieren',
