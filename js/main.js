@@ -160,6 +160,14 @@ let dispPreviewGeometry  = null;   // subdivided geometry with smoothNormal attr
 let dispPreviewBusy      = false;  // true while async subdivision is running
 let dispPreviewParentMap = null;   // Int32Array: subdivided face → original face index
 
+// ── Operation tokens (stale-result guards) ────────────────────────────────────
+// Each async operation captures the current token at start and checks it after
+// every await. When a new model loads all tokens are incremented, causing any
+// in-flight operation to silently abort rather than apply results to new state.
+let precisionToken   = 0;
+let dispPreviewToken = 0;
+let exportToken      = 0;
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
 const canvas         = document.getElementById('viewport');
@@ -479,7 +487,6 @@ function wireEvents() {
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
   scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
-  addFineWheelSupport(scaleUVal, applyScaleU);
 
   // Scale V — when lock is on, mirror to U
   const applyScaleV = (v) => {
@@ -493,7 +500,6 @@ function wireEvents() {
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
   scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
   scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
-  addFineWheelSupport(scaleVVal, applyScaleV);
 
   // Lock toggle
   lockScaleBtn.addEventListener('click', () => {
@@ -637,13 +643,6 @@ function wireEvents() {
     exclBrushRadiusVal.value = diam;
     checkPrecisionOutdated();
   });
-  addFineWheelSupport(exclBrushRadiusVal, (v) => {
-    const diam = Math.max(0.2, Math.min(100, v));
-    brushRadius = diam / 2;
-    exclBrushRadiusSlider.value = diam;
-    exclBrushRadiusVal.value = diam;
-    checkPrecisionOutdated();
-  });
 
   exclThresholdSlider.addEventListener('input', () => {
     bucketThreshold = parseFloat(exclThresholdSlider.value);
@@ -658,12 +657,6 @@ function wireEvents() {
   });
   exclThresholdVal.addEventListener('change', () => {
     bucketThreshold = Math.max(0, Math.min(180, parseFloat(exclThresholdVal.value) || 20));
-    exclThresholdSlider.value = bucketThreshold;
-    exclThresholdVal.value = bucketThreshold;
-    _lastHoverTriIdx = -1;
-  });
-  addFineWheelSupport(exclThresholdVal, (v) => {
-    bucketThreshold = Math.max(0, Math.min(180, v));
     exclThresholdSlider.value = bucketThreshold;
     exclThresholdVal.value = bucketThreshold;
     _lastHoverTriIdx = -1;
@@ -1441,69 +1434,8 @@ function updateBucketHover(e) {
 
 // ── Slider helper ─────────────────────────────────────────────────────────────
 
-const INPUT_WHEEL_DECIMALS = 3;
-
-function getInputPrecision(input) {
-  const configured = parseInt(input.dataset.wheelDecimals, 10);
-  if (!isNaN(configured) && configured >= 0) return configured;
-  const step = input.step;
-  if (step === 'any') return INPUT_WHEEL_DECIMALS;
-  const stepNum = parseFloat(step);
-  if (isNaN(stepNum)) return INPUT_WHEEL_DECIMALS;
-  if (Number.isInteger(stepNum)) return 0;
-  const frac = step.includes('.') ? step.split('.')[1].replace(/0+$/, '').length : 0;
-  return Math.max(INPUT_WHEEL_DECIMALS, frac);
-}
-
-function roundToPrecision(value, precision) {
-  if (precision <= 0) return Math.round(value);
-  const factor = 10 ** precision;
-  return Math.round(value * factor) / factor;
-}
-
-function clampToInputBounds(input, value) {
-  const min = parseFloat(input.min);
-  const max = parseFloat(input.max);
-  let clamped = value;
-  if (!isNaN(min)) clamped = Math.max(min, clamped);
-  if (!isNaN(max)) clamped = Math.min(max, clamped);
-  return clamped;
-}
-
-function formatInputValue(input, value) {
-  const precision = getInputPrecision(input);
-  if (precision <= 0) return String(Math.round(value));
-  return value.toFixed(precision).replace(/\.?0+$/, '');
-}
-
-function addFineWheelSupport(input, applyFn) {
-  input.addEventListener('wheel', (e) => {
-    if (input.disabled || input.readOnly) return;
-    e.preventDefault();
-    input.focus({ preventScroll: true });
-    const precision = getInputPrecision(input);
-    const step = precision <= 0 ? 1 : 1 / (10 ** precision);
-    const current = parseFloat(input.value);
-    const fallback = parseFloat(input.defaultValue || input.min || '0');
-    const base = isNaN(current) ? (isNaN(fallback) ? 0 : fallback) : current;
-    const direction = e.deltaY < 0 ? 1 : -1;
-    const next = clampToInputBounds(input, roundToPrecision(base + direction * step, precision));
-    applyFn(next);
-  }, { passive: false });
-}
-
 function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
   const isSpan = valInput.tagName === 'SPAN';
-  const applyLinkedValue = (raw) => {
-    const clamped = clampToInputBounds(valInput, raw);
-    slider.value = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), clamped));
-    onChangeFn(clamped);
-    valInput.value = formatInputValue(valInput, clamped);
-    if (livePreview) {
-      clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(updatePreview, 80);
-    }
-  };
   slider.addEventListener('input', () => {
     const v = parseFloat(slider.value);
     const display = onChangeFn(v);
@@ -1527,16 +1459,27 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
   if (!isSpan) {
     valInput.addEventListener('change', () => {
       const raw = parseFloat(valInput.value);
-      if (isNaN(raw)) { valInput.value = formatInputValue(valInput, parseFloat(slider.value)); return; }
-      applyLinkedValue(raw);
+      if (isNaN(raw)) { valInput.value = slider.value; return; }
+      // Clamp to the input's own min/max (may be wider than the slider range)
+      const inMin = parseFloat(valInput.min);
+      const inMax = parseFloat(valInput.max);
+      const clamped = (!isNaN(inMin) && !isNaN(inMax))
+        ? Math.max(inMin, Math.min(inMax, raw))
+        : raw;
+      // Move slider thumb to nearest valid position (saturates at slider edges)
+      slider.value = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), clamped));
+      valInput.value = onChangeFn(clamped);
+      if (livePreview) {
+        clearTimeout(previewDebounce);
+        previewDebounce = setTimeout(updatePreview, 80);
+      }
     });
-    addFineWheelSupport(valInput, applyLinkedValue);
   }
 }
 
 function formatM(n) {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')} M`
-       : n >= 1_000    ? `${(n / 1_000).toFixed(1).replace(/\.0$/, '')} k`
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} M`
+       : n >= 1_000    ? `${(n / 1_000).toFixed(0)} k`
        : String(n);
 }
 
@@ -1548,6 +1491,11 @@ function loadDefaultCube() {
   const geo = new THREE.BoxGeometry(50, 50, 50).toNonIndexed();
   geo.computeBoundingBox();
   geo.computeVertexNormals();
+
+  // Invalidate any in-flight async operations tied to the previous model
+  precisionToken++;
+  dispPreviewToken++;
+  exportToken++;
 
   currentGeometry = geo;
   currentBounds   = computeBounds(geo);
@@ -1609,11 +1557,24 @@ function loadDefaultCube() {
 
 async function handleModelFile(file) {
   try {
-    const { geometry, bounds } = await loadModelFile(file);
+    const { geometry, bounds, nanCount, degenerateCount } = await loadModelFile(file);
+
+    // Invalidate any in-flight async operations tied to the previous model
+    precisionToken++;
+    dispPreviewToken++;
+    exportToken++;
+
     currentGeometry = geometry;
     currentBounds   = bounds;
     currentStlName  = file.name.replace(/\.(stl|obj|3mf)$/i, '');
     checkAmplitudeWarning();
+
+    // Warn the user if bad triangles were silently removed during load
+    const removedCount = (nanCount ?? 0) + (degenerateCount ?? 0);
+    if (removedCount > 0) {
+      console.warn(`Removed ${nanCount} NaN and ${degenerateCount} degenerate triangles at load time`);
+      alert(t('alerts.degenerateTrianglesRemoved', { n: removedCount }));
+    }
 
     // Dispose old preview material and reset state for the new mesh
     if (previewMaterial) {
@@ -2558,6 +2519,7 @@ async function refreshPrecisionMesh() {
     if (!confirm(msg)) return;
   }
 
+  const myToken = ++precisionToken;
   precisionBusy = true;
   precisionStatus.textContent = t('precision.refining');
   precisionOutdated.classList.add('hidden');
@@ -2566,10 +2528,12 @@ async function refreshPrecisionMesh() {
 
   try {
     await yieldFrame();
+    if (precisionToken !== myToken) return;
 
     const { geometry: subdivided, safetyCapHit, faceParentId } = await subdivide(
       currentGeometry, targetEdge, null, null, { fast: true }
     );
+    if (precisionToken !== myToken) { subdivided.dispose(); return; }
 
     // Dispose previous precision geometry if any
     if (precisionGeometry) precisionGeometry.dispose();
@@ -2721,6 +2685,7 @@ async function toggleDisplacementPreview(enable) {
   }
 
   if (dispPreviewBusy) return;
+  const myToken = ++dispPreviewToken;
   dispPreviewBusy = true;
 
   try {
@@ -2730,10 +2695,12 @@ async function toggleDisplacementPreview(enable) {
     const previewEdge = Math.max(0.1, maxDim / 80);
 
     await yieldFrame();
+    if (dispPreviewToken !== myToken) return;
 
     const { geometry: subdivided, faceParentId } = await subdivide(
       currentGeometry, previewEdge, null, null, { fast: true }
     );
+    if (dispPreviewToken !== myToken) { subdivided.dispose(); return; }
 
     addSmoothNormals(subdivided);
     addFaceNormals(subdivided);
@@ -2812,6 +2779,7 @@ function buildCombinedFaceWeights(geometry, excludedFaces, invert, settings) {
 
 async function handleExport() {
   if (!currentGeometry || !activeMapEntry || isExporting) return;
+  const myToken = ++exportToken;
   isExporting = true;
   exportBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
@@ -2821,9 +2789,16 @@ async function handleExport() {
     deactivatePrecisionMasking();
   }
 
+  // Hoist intermediate geometries so the finally block can always dispose them
+  let subdivided      = null;
+  let displaced       = null;
+  let finalGeometry   = null;
+  let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
+
   try {
     setProgress(0.02, t('progress.subdividing'));
     await yieldFrame();
+    if (exportToken !== myToken) return;
 
     // Build per-vertex exclusion weights combining user-painted exclusion + angle masking.
     // Faces masked by top/bottom angle limits are treated the same as user-excluded faces
@@ -2834,7 +2809,8 @@ async function handleExport() {
       ? buildCombinedFaceWeights(currentGeometry, excludedFaces, selectionMode, settings)
       : null;
 
-    const { geometry: subdivided, safetyCapHit } = await subdivide(
+    let safetyCapHit;
+    ({ geometry: subdivided, safetyCapHit } = await subdivide(
       currentGeometry, settings.refineLength,
       (p, triCount, longestEdge) => {
         const label = triCount != null
@@ -2843,13 +2819,14 @@ async function handleExport() {
         setProgress(0.02 + p * 0.35, label);
       },
       faceWeights
-    );
+    ));
+    if (exportToken !== myToken) return;
 
     const subTriCount = subdivided.attributes.position.count / 3;
     setProgress(0.38, t('progress.applyingDisplacement', { n: subTriCount.toLocaleString() }));
 
     const exportEntry = getEffectiveMapEntry();
-    const displaced = await runAsync(() =>
+    displaced = await runAsync(() =>
       applyDisplacement(
         subdivided,
         exportEntry.imageData,
@@ -2860,14 +2837,14 @@ async function handleExport() {
         (p) => setProgress(0.38 + p * 0.32, t('progress.displacingVertices'))
       )
     );
+    if (exportToken !== myToken) return;
 
     const dispTriCount = displaced.attributes.position.count / 3;
     const needsDecimation = dispTriCount > settings.maxTriangles;
     triLimitWarning.classList.toggle('hidden', !safetyCapHit);
-    // Re-apply translated warning text in case language changed since last export
     triLimitWarning.textContent = t('warnings.safetyCapHit');
 
-    let finalGeometry = displaced;
+    finalGeometry = displaced;
     if (needsDecimation) {
       setProgress(0.71, t('progress.decimatingTo', { from: dispTriCount.toLocaleString(), to: settings.maxTriangles.toLocaleString() }));
       finalGeometry = await runAsync(() =>
@@ -2883,6 +2860,7 @@ async function handleExport() {
           }
         )
       );
+      if (exportToken !== myToken) return;
     }
 
     // Flat-bottom clamp: when bottom faces are masked (bottomAngleLimit > 0),
@@ -2917,11 +2895,13 @@ async function handleExport() {
 
     setProgress(0.97, t('progress.writingStl'));
     await yieldFrame();
+    if (exportToken !== myToken) return;
 
     const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
     const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
     const exportName = `${currentStlName}_${texLabel}_amp${ampLabel}.stl`;
     exportSTL(finalGeometry, exportName);
+    exportSucceeded = true;
 
     setProgress(1.0, t('progress.done'));
     setTimeout(() => {
@@ -2931,8 +2911,14 @@ async function handleExport() {
   } catch (err) {
     console.error('Export failed:', err);
     alert(t('alerts.exportFailed', { msg: err.message }));
-    exportProgress.classList.add('hidden');
   } finally {
+    // Dispose all intermediate geometries regardless of success, failure, or abort.
+    // finalGeometry may alias displaced (no decimation) — avoid double-dispose.
+    if (subdivided) subdivided.dispose();
+    if (displaced && displaced !== subdivided) displaced.dispose();
+    if (finalGeometry && finalGeometry !== displaced && finalGeometry !== subdivided) finalGeometry.dispose();
+    // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
+    if (!exportSucceeded) exportProgress.classList.add('hidden');
     isExporting = false;
     exportBtn.classList.remove('busy');
   }
@@ -2945,16 +2931,20 @@ function setProgress(fraction, label) {
   exportProgLbl.textContent = label;
 }
 
-/** Yield to the browser event loop for one frame, then run fn. */
+/**
+ * Yield to the browser event loop, then run fn.
+ * Uses setTimeout instead of rAF so it fires even in background tabs.
+ */
 function runAsync(fn) {
   return new Promise((resolve, reject) => {
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       try { resolve(fn()); }
       catch (e) { reject(e); }
-    });
+    }, 0);
   });
 }
 
+/** Yield to the browser event loop (for progress bar paints etc.). */
 function yieldFrame() {
-  return new Promise(r => requestAnimationFrame(r));
+  return new Promise(r => setTimeout(r, 0));
 }
