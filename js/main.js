@@ -9,7 +9,7 @@ import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { applyDisplacement }  from './displacement.js';
 import { decimate }           from './decimation.js';
-import { exportSTL }          from './exporter.js';
+import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -172,6 +172,7 @@ const presetGrid     = document.getElementById('preset-grid');
 const activeMapName  = document.getElementById('active-map-name');
 const meshInfo       = document.getElementById('mesh-info');
 const exportBtn        = document.getElementById('export-btn');
+const export3mfBtn     = document.getElementById('export-3mf-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
 const exportProgPct    = document.getElementById('export-progress-pct');
@@ -558,9 +559,9 @@ function wireEvents() {
   });
 
   // ── Export ──
-  exportBtn.addEventListener('click', () => {
+  const startExport = (format) => {
     if (sessionStorage.getItem('stlt-no-sponsor') === '1') {
-      handleExport();
+      handleExport(format);
       return;
     }
     const overlay = document.getElementById('sponsor-overlay');
@@ -574,13 +575,15 @@ function wireEvents() {
         sessionStorage.setItem('stlt-no-sponsor', '1');
       }
       overlay.classList.add('hidden');
-      handleExport();
+      handleExport(format);
     };
 
     closeBtn.onclick = dismiss;
     // Also start processing when the user clicks through to the store
     storeLink.onclick = () => setTimeout(dismiss, 150);
-  });
+  };
+  exportBtn.addEventListener('click', () => startExport('stl'));
+  export3mfBtn.addEventListener('click', () => startExport('3mf'));
 
   // ── Wireframe ──
   wireframeToggle.addEventListener('change', () => setWireframe(wireframeToggle.checked));
@@ -1300,6 +1303,7 @@ function handlePlaceOnFaceClick(e) {
   meshInfo.textContent = t('ui.meshInfo', { n: triCount.toLocaleString(), mb, sx, sy, sz });
 
   exportBtn.disabled = (activeMapEntry === null);
+  export3mfBtn.disabled = (activeMapEntry === null);
   updatePreview();
 
   // Rebuild exclusion overlay with new vertex positions (face indices unchanged)
@@ -1609,6 +1613,7 @@ function loadDefaultCube() {
   meshInfo.textContent = t('ui.meshInfo', { n: triCount.toLocaleString(), mb, sx, sy, sz });
 
   exportBtn.disabled = (activeMapEntry === null);
+  export3mfBtn.disabled = (activeMapEntry === null);
   updatePreview();
 }
 
@@ -1711,6 +1716,7 @@ async function handleModelFile(file) {
     meshInfo.textContent = t('ui.meshInfo', { n: triCount.toLocaleString(), mb, sx, sy, sz });
 
     exportBtn.disabled = (activeMapEntry === null);
+    export3mfBtn.disabled = (activeMapEntry === null);
     updatePreview();
   } catch (err) {
     console.error('Failed to load model:', err);
@@ -2345,6 +2351,7 @@ function updatePreview() {
       previewMaterial = null;
     }
     exportBtn.disabled = true;
+    export3mfBtn.disabled = true;
     return;
   }
 
@@ -2369,6 +2376,7 @@ function updatePreview() {
 
   syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
+  export3mfBtn.disabled = false;
 }
 
 // ── Displacement preview ──────────────────────────────────────────────────────
@@ -2829,10 +2837,11 @@ function buildCombinedFaceWeights(geometry, excludedFaces, invert, settings) {
   return weights;
 }
 
-async function handleExport() {
+async function handleExport(format = 'stl') {
   if (!currentGeometry || !activeMapEntry || isExporting) return;
   isExporting = true;
   exportBtn.classList.add('busy');
+  export3mfBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
 
   // If precision masking is active, bake the refined mesh before exporting
@@ -2939,13 +2948,19 @@ async function handleExport() {
       else finalGeometry.attributes.normal.needsUpdate = true;
     }
 
-    setProgress(0.97, t('progress.writingStl'));
-    await yieldFrame();
-
     const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
     const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
-    const exportName = `${currentStlName}_${texLabel}_amp${ampLabel}.stl`;
-    exportSTL(finalGeometry, exportName);
+    const baseName = `${currentStlName}_${texLabel}_amp${ampLabel}`;
+
+    if (format === '3mf') {
+      setProgress(0.97, t('progress.writing3mf'));
+      await yieldFrame();
+      export3MF(finalGeometry, `${baseName}.3mf`);
+    } else {
+      setProgress(0.97, t('progress.writingStl'));
+      await yieldFrame();
+      exportSTL(finalGeometry, `${baseName}.stl`);
+    }
 
     setProgress(1.0, t('progress.done'));
     setTimeout(() => {
@@ -2959,6 +2974,7 @@ async function handleExport() {
   } finally {
     isExporting = false;
     exportBtn.classList.remove('busy');
+    export3mfBtn.classList.remove('busy');
   }
 }
 

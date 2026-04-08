@@ -635,6 +635,17 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 .export-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .export-btn.busy { opacity: 0.7; pointer-events: none; }
+
+/* Row containing Export STL and Export 3MF side-by-side */
+.export-buttons {
+  display: flex;
+  gap: 8px;
+}
+.export-buttons .export-btn {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
 /* ── Lock / proportional-scale button ───────────────────────────────────── */
 .lock-btn {
   flex-shrink: 0;
