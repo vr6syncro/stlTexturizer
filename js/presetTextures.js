@@ -42,7 +42,7 @@ const IMAGE_PRESETS = [
   { name: 'Isogrid',      url: 'textures/isogrid.png',      defaultScale: 0.5 },
   { name: 'Knitting',     url: 'textures/knitting.png',     defaultScale: 0.25 },
   { name: 'Knurling',     url: 'textures/knurling.jpg',     defaultScale: 0.15 },
-  { name: 'Leather 2',    url: 'textures/leather2.jpg',     defaultScale: 0.5 },
+  { name: 'Leather 2',    url: 'textures/leather2.png',     defaultScale: 0.5 },
   { name: 'Noise',        url: 'textures/noise.jpg',        defaultScale: 0.3 },
   { name: 'Stripes 1',    url: 'textures/stripes.png',      defaultScale: 0.5 },
   { name: 'Stripes 2',    url: 'textures/stripes_02.png',   defaultScale: 1.0 },
